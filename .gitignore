@@ -24,3 +24,7 @@ build/
 # Exception: release versions
 !releases/*.pdf
 EOF
+
+# ignore sage intermediate results
+# (use .sobjB to check in)
+.sobj
