@@ -34,6 +34,15 @@ dg=15
 dgp=$(dg)
 dgm=$(dg)
 
+params.sobj:
+	sage -c "$(PARAMS_PY)"
+
+define PARAMS_PY
+params = { 'N' : $(NN), 'q' : $(qq), 'p' : $(pp), 'df' : $(df), 'dfp' : $(dfp), \
+	'dfm' : $(dfm), 'dg' : $(dg), 'dgp' : $(dgp), 'dgm' : $(dgm)}; \
+save(params,'$@')
+endef
+
 # original small challenge problem
 #n = 167, q = 128, p = 3, d_f = 61, d_g = 20
 
