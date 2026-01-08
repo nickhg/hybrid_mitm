@@ -27,4 +27,4 @@ EOF
 
 # ignore sage intermediate results
 # (use .sobjB to check in)
-.sobj
+*.sobj
