@@ -1,7 +1,9 @@
+GIT_ROOT := $(shell git rev-parse --show-toplevel)
+include $(GIT_ROOT)/share.mk
 
 t2=$(word 2,$^)
 
-TGTS: ex.txt ex.pdf fgh.sobj pubkey.sobj ntru_lattice.sobj
+TGTS= fgh.sobj pubkey.sobj ntru_lattice.sobj small_vec.sobj u_vec.sobj
 
 all: $(TGTS)
 
@@ -24,15 +26,15 @@ all: $(TGTS)
 # n = 79, q = 64, p = 3, d_f = 12, d_g = 12
 
 # small
-NN=101
-qq=128
+NN=79
+qq=64
 pp=3
 df=15
-dfp=$(df)
-dfm=$(df)
-dg=15
-dgp=$(dg)
-dgm=$(dg)
+dfp=11
+dfm=0
+dg=12
+dgp=12
+dgm=0
 
 params.sobj:
 	sage -c "$(PARAMS_PY)"
@@ -49,25 +51,62 @@ endef
 fgh.sobj:
 	sage -c "$(NTRU_KEYGEN)"
 
+# R.<x> = PolynomialRing(ZZ) can do this in one go
 define NTRU_KEYGEN
-R.<x> = PolynomialRing(ZZ); \
-Rq = R.quotient(x^$(NN) - 1); \
-f_poly = R(sample([1]*$(dfp) + [-1]*$(dfm) + [0]*($(NN)-$(dfp)-$(dfm)), $(NN))); \
-g_poly = R(sample([1]*$(dgp) + [-1]*$(dgm) + [0]*($(NN)-$(dgp)-$(dgm)), $(NN))); \
-f = Rq(f_poly); \
-g = Rq(g_poly); \
-from sage.rings.polynomial.polynomial_quotient_ring import PolynomialQuotientRing_generic; \
-gcd, u, v = xgcd(f_poly, x^$(NN) - 1); \
-f_inv_ZZ = Rq(u); \
-Rq_mod = PolynomialRing(Zmod($(qq)), 'x').quotient(x^$(NN) - 1); \
-f_inv_q = Rq_mod(f_inv_ZZ.lift()); \
-g_q = Rq_mod(g.lift()); \
-h = $(pp) * g_q * f_inv_q; \
+ZZx = PolynomialRing(ZZ, 'x'); \
+x = ZZx.gen(); \
+xnmo = x^$(NN) - 1; \
+CYCx = ZZx.quotient(xnmo); \
+CYCqx = PolynomialRing(Zmod($(qq)), 'x').quotient(xnmo); \
+f_poly = ZZx(sample([1]*$(dfp) + [-1]*$(dfm) + [0]*($(NN)-$(dfp)-$(dfm)), $(NN))); \
+g_poly = ZZx(sample([1]*$(dgp) + [-1]*$(dgm) + [0]*($(NN)-$(dgp)-$(dgm)), $(NN))); \
+d, u, v = xgcd(f_poly, xnmo); \
+'''this is slightly too strong e.g. 1/(x+1) = 1+x+x^2+...x^{N-1} is invertible mod X^N-1, and any constant multiples '''; \
+assert d.degree() == 0 and gcd(Integer(d[0]), $(qq)) == 1, 'f not invertible mod q: '+str(d); \
+f,g = CYCqx(f_poly), CYCqx(g_poly); \
+finv = CYCqx(u)/CYCqx(d); \
+h = $(pp)*g*finv; \
 save([f,g,h], '$@');
 endef
 
+check_key: fgh.sobj
+	sage -c "f,g,h = load('$<'); print(f*h-$(pp)*g)"
+
 pubkey.sobj: fgh.sobj
 	sage -c "h=load('$<')[2]; save(vector(h.lift().list() + [0]*($(NN) - len(h.lift().list()))), '$@')"
+
+small_vec.sobj: fgh.sobj ntru_lattice.sobj
+	sage -c "$(SMALL_VEC_PY)"
+
+# i dont think it matters if things are mod q or not
+define SMALL_VEC_PY
+f=load('$<')[0]; \
+f_modq = vector(f.lift().list() + [0]*($(NN) - len(f.lift().list()))); \
+L=load('$(d2)'); \
+u1=vector(zero_vector($(NN)).list()+f_modq.list()); \
+sm_modq = vector(Zmod($(qq)),u1*L); \
+sm_centered = vector([x.lift_centered() for x in sm_modq]); \
+sm_zz = vector(ZZ,sm_centered); \
+save(vector(ZZ,sm_centered), '$@')
+endef
+
+u_vec.sobj: small_vec.sobj ntru_lattice.sobj
+	sage -c "$(U_VEC_PY)"
+
+define U_VEC_PY
+sm=load('$<'); \
+L=load('$(d2)'); \
+u=sm*(L.inverse()); \
+save(u.change_ring(ZZ), '$@')
+endef
+
+check_mat: u_vec.sobj ntru_lattice.sobj small_vec.sobj
+	sage -c "u=load('$<'); L=load('$(d2)'); sm=load('$(d3)'); print(u*L-sm)"
+
+#assert gcd == 1, 'h not invertible over Z, gcd=' + str(gcd); \
+
+# q 0
+# H I
 
 ntru_lattice.sobj: pubkey.sobj
 	sage -c "$(NTRU_LATTICE_PY)"
